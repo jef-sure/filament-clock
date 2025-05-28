@@ -23,7 +23,7 @@ enum
 {
     // 0 and 1 are free for use
     // 2 is used for strapping
-    OutputEnablePin = GPIO_NUM_0,
+    OutputEnablePin = GPIO_NUM_7,
     LatchPin        = GPIO_NUM_10,
     DataPin         = GPIO_NUM_6,
     ClockPin        = GPIO_NUM_4,
