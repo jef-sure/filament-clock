@@ -7,7 +7,7 @@
 static const char *TAG = "spi_shiftout";
 
 #define OE_RESOLUTION LEDC_TIMER_8_BIT
-#define OE_MAX_VALUE  ((1U << OE_RESOLUTION) - 1)
+#define OE_MAX_VALUE  ((1U << OE_RESOLUTION))
 
 spi_shiftout_t *spi_shiftout_init(int32_t frequency, gpio_num_t data_pin, gpio_num_t clock_pin, gpio_num_t latch_pin,
                                   gpio_num_t output_enable_pin, spi_host_device_t host, uint8_t shift_out_length)
@@ -19,28 +19,29 @@ spi_shiftout_t *spi_shiftout_init(int32_t frequency, gpio_num_t data_pin, gpio_n
     }
     cfg->latch_pin              = latch_pin;
     cfg->output_enable_pin      = output_enable_pin;
-    cfg->output_enable_value    = 0; // Default value for output enable
+    cfg->output_enable_value    = 0; // No output enable by default
+    cfg->ledc_duty              = OE_MAX_VALUE - cfg->output_enable_value;
     cfg->shift_out_length       = shift_out_length;
-    cfg->ledc_channel           = LEDC_CHANNEL_0; // or another available channel
-    ledc_timer_t ledc_timer_num = LEDC_TIMER_0;   // or another available timer
+    cfg->ledc_channel           = LEDC_CHANNEL_0;
+    ledc_timer_t ledc_timer_num = LEDC_TIMER_0;
     if (output_enable_pin >= 0) {
         // Configure OE pin for PWM (LEDC)
         ledc_timer_config_t ledc_timer = {
             .speed_mode      = LEDC_LOW_SPEED_MODE, //
             .timer_num       = ledc_timer_num,      //
             .duty_resolution = OE_RESOLUTION,       //
-            .freq_hz         = 4000,                // TODO: test this value
+            .freq_hz         = 500,                 // TODO: test this value
             .clk_cfg         = LEDC_AUTO_CLK        //
         };
         ledc_timer_config(&ledc_timer);
         ledc_channel_config_t ledc_channel = {
-            .gpio_num            = cfg->output_enable_pin,                  //
-            .speed_mode          = LEDC_LOW_SPEED_MODE,                     //
-            .channel             = cfg->ledc_channel,                       //
-            .timer_sel           = ledc_timer_num,                          //
-            .duty                = OE_MAX_VALUE - cfg->output_enable_value, // 100% duty (fully enabled)
-            .hpoint              = 0,                                       //
-            .flags.output_invert = 0                                        //
+            .gpio_num            = cfg->output_enable_pin, //
+            .speed_mode          = LEDC_LOW_SPEED_MODE,    //
+            .channel             = cfg->ledc_channel,      //
+            .timer_sel           = ledc_timer_num,         //
+            .duty                = cfg->ledc_duty,         //
+            .hpoint              = 0,                      //
+            .flags.output_invert = 0                       //
         };
         ledc_channel_config(&ledc_channel);
     }
@@ -79,7 +80,7 @@ spi_shiftout_t *spi_shiftout_init(int32_t frequency, gpio_num_t data_pin, gpio_n
     return cfg;
 }
 
-void spi_shiftout_write(spi_shiftout_t *cfg, uint8_t oe_val)
+void spi_shiftout_write(spi_shiftout_t *cfg)
 {
     esp_err_t         ret;
     spi_transaction_t t;
@@ -90,9 +91,9 @@ void spi_shiftout_write(spi_shiftout_t *cfg, uint8_t oe_val)
     ret         = spi_device_polling_transmit(cfg->spi, &t); // Transmit!
     gpio_set_level(cfg->latch_pin, 1);
     assert(ret == ESP_OK); // Should have had no issues.
-    if (cfg->output_enable_pin >= 0 && oe_val != cfg->output_enable_value) {
-        cfg->output_enable_value = oe_val;
-        ledc_set_duty(LEDC_LOW_SPEED_MODE, cfg->ledc_channel, OE_MAX_VALUE - oe_val);
+    if (cfg->output_enable_pin >= 0 && cfg->ledc_duty != OE_MAX_VALUE - cfg->output_enable_value) {
+        cfg->ledc_duty = OE_MAX_VALUE - cfg->output_enable_value;
+        ledc_set_duty(LEDC_LOW_SPEED_MODE, cfg->ledc_channel, cfg->ledc_duty);
         ledc_update_duty(LEDC_LOW_SPEED_MODE, cfg->ledc_channel);
     }
 }
