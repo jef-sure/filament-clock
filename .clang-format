@@ -1,4 +1,5 @@
 BasedOnStyle: Microsoft
+ColumnLimit: 150
 IndentExternBlock: NoIndent
 IndentWidth: 4
 TabWidth: 4

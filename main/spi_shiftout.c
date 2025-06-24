@@ -9,20 +9,57 @@ static const char *TAG = "spi_shiftout";
 #define OE_RESOLUTION LEDC_TIMER_8_BIT
 #define OE_MAX_VALUE  ((1U << OE_RESOLUTION))
 
-spi_shiftout_t *spi_shiftout_init(int32_t frequency, gpio_num_t data_pin, gpio_num_t clock_pin, gpio_num_t latch_pin,
-                                  gpio_num_t output_enable_pin, spi_host_device_t host, uint8_t shift_out_length)
+spi_device_handle_t spi_shiftout_spi_init(int32_t frequency, gpio_num_t data_pin, gpio_num_t clock_pin,
+                                          spi_host_device_t host)
+{
+    // Configure the SPI bus
+    spi_bus_config_t buscfg = {
+        .miso_io_num     = -1,        //
+        .mosi_io_num     = data_pin,  //
+        .sclk_io_num     = clock_pin, //
+        .quadwp_io_num   = -1,        //
+        .quadhd_io_num   = -1,        //
+        .max_transfer_sz = 0,         //
+        .flags           = 0          //
+    };
+    spi_device_interface_config_t devcfg = {
+        .clock_speed_hz = frequency, // Clock out
+        .mode           = 0,         // SPI mode 0
+        .spics_io_num   = -1,        // CS pin
+        .queue_size     = 1,         //
+        .pre_cb         = 0,         //
+    };
+    esp_err_t rc;
+    // Initialize the SPI bus
+    rc = spi_bus_initialize(host, &buscfg, SPI_DMA_CH_AUTO);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Failed spi_bus_initialize");
+        return 0;
+    }
+    spi_device_handle_t spi;
+    rc = spi_bus_add_device(host, &devcfg, &spi);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Failed spi_bus_add_device");
+        return 0;
+    }
+    return spi;
+}
+
+spi_shiftout_t *spi_shiftout_init(spi_device_handle_t spi, gpio_num_t latch_pin, gpio_num_t output_enable_pin,
+                                  ledc_channel_t pwm_channel, uint8_t shift_out_length)
 {
     spi_shiftout_t *cfg = (spi_shiftout_t *)calloc(1, sizeof(spi_shiftout_t) + shift_out_length - 1);
     if (!cfg) {
         ESP_LOGE(TAG, "Failed to allocate memory for spi_shiftout_t");
         return NULL;
     }
+    cfg->spi                    = spi;
     cfg->latch_pin              = latch_pin;
     cfg->output_enable_pin      = output_enable_pin;
     cfg->output_enable_value    = 0; // No output enable by default
     cfg->ledc_duty              = OE_MAX_VALUE - cfg->output_enable_value;
     cfg->shift_out_length       = shift_out_length;
-    cfg->ledc_channel           = LEDC_CHANNEL_0;
+    cfg->ledc_channel           = pwm_channel;
     ledc_timer_t ledc_timer_num = LEDC_TIMER_0;
     if (output_enable_pin >= 0) {
         // Configure OE pin for PWM (LEDC)
@@ -45,29 +82,6 @@ spi_shiftout_t *spi_shiftout_init(int32_t frequency, gpio_num_t data_pin, gpio_n
         };
         ledc_channel_config(&ledc_channel);
     }
-    // Configure the SPI bus
-    spi_bus_config_t buscfg = {
-        .miso_io_num     = -1,                   //
-        .mosi_io_num     = data_pin,             //
-        .sclk_io_num     = clock_pin,            //
-        .quadwp_io_num   = -1,                   //
-        .quadhd_io_num   = -1,                   //
-        .max_transfer_sz = shift_out_length * 8, //
-        .flags           = 0                     //
-    };
-    spi_device_interface_config_t devcfg = {
-        .clock_speed_hz = frequency, // Clock out
-        .mode           = 0,         // SPI mode 0
-        .spics_io_num   = -1,        // CS pin
-        .queue_size     = 1,         //
-        .pre_cb         = 0,         //
-    };
-    esp_err_t ret;
-    // Initialize the SPI bus
-    ret = spi_bus_initialize(host, &buscfg, SPI_DMA_CH_AUTO);
-    ESP_ERROR_CHECK(ret);
-    ret = spi_bus_add_device(host, &devcfg, &cfg->spi);
-    ESP_ERROR_CHECK(ret);
     gpio_config_t latch_conf = {
         .pin_bit_mask = (1ULL << latch_pin),   //
         .mode         = GPIO_MODE_OUTPUT,      //
