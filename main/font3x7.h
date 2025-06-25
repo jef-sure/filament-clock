@@ -10,6 +10,7 @@ extern "C"
 #endif
 
 void draw_digit_3x(led_matrix_t *matrix, uint8_t digit, uint8_t x, uint8_t y);
+void draw_digit_3xCLK(led_matrix_t *matrix);
 
 #ifdef __cplusplus
 }

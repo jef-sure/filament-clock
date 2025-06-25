@@ -2,4 +2,4 @@
 .devcontainer/
 build/
 sdkconfig.*
-
+partition_table/partitionTable.bin

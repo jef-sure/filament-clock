@@ -16,6 +16,7 @@
 #include "esp_timer.h"
 #include "freertos/task.h"
 #include "nvs_config.h"
+#include "provisioning.h"
 
 const int                 WIFI_CONNECTED_EVENT = BIT0;
 static EventGroupHandle_t wifi_event_group;
@@ -87,7 +88,7 @@ static void wifi_init_sta(void)
     ESP_ERROR_CHECK(esp_wifi_start());
 }
 
-static void get_device_service_name(char *service_name, size_t max)
+void get_device_service_name(char *service_name, size_t max)
 {
     uint8_t     eth_mac[6];
     const char *ssid_prefix = "CLK-";
@@ -96,7 +97,7 @@ static void get_device_service_name(char *service_name, size_t max)
     snprintf(service_name, max, "%s%04d", ssid_prefix, hash);
 }
 
-void provisioning_setup(bool force_provisioning)
+void provisioning_setup(service_name_func_t show_service_name, bool force_provisioning)
 {
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -195,7 +196,9 @@ void provisioning_setup(bool force_provisioning)
         /* Start provisioning service */
         ESP_ERROR_CHECK(wifi_prov_mgr_start_provisioning(security, (const void *)sec_params, service_name, service_key));
         ESP_LOGI(TAG, "Provisioning started with service name: %s", service_name);
-
+        if (show_service_name) {
+            show_service_name(service_name);
+        }
     } else {
         ESP_LOGI(TAG, "Already provisioned, starting Wi-Fi STA");
 

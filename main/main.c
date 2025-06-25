@@ -24,7 +24,10 @@
 #include "font2x7.h"
 #include "font3x5.h"
 #include "font3x7.h"
+#include "http_server.h"
 #include "led_matrix.h"
+#include "nvs_config.h"
+#include "provisioning.h"
 #include "spi_shiftout.h"
 #include "weather.h"
 
@@ -45,6 +48,14 @@ enum
     LMShiftOutLength   = 4,
     SPI_HOST           = SPI2_HOST,
 };
+
+enum
+{
+    DisplayModeWeather,
+    DisplayModeWeb,
+    DisplayModeClock,
+    DisplayModeStarting
+} display_mode = DisplayModeStarting;
 
 static const char TAG[]          = "MAIN APP";
 SemaphoreHandle_t xSemClockHands = NULL;
@@ -112,6 +123,22 @@ void show_weather_info_sync()
     led_matrix_draw_sync(led_matrix, xSemLedMatrix, draw_weather_info, &weather_info);
 }
 
+void show_service_info(led_matrix_t *matrix, void *data)
+{
+    char *service_name = (char *)data; // CLK-1234
+    ESP_LOGI(TAG, "Showing service info: %s", service_name);
+    led_matrix_clear(matrix);
+    draw_digit_3xCLK(matrix); // Show clock icon
+    for (int i = 0; i < 4; i++) {
+        draw_digit_3x(matrix, service_name[i + 4] - '0', i * 4, 8);
+    }
+}
+
+void show_ble_id(char *service_name)
+{
+    led_matrix_draw_sync(led_matrix, xSemLedMatrix, show_service_info, service_name);
+}
+
 void task_shiftout(void *arg)
 {
     while (1) {
@@ -123,21 +150,17 @@ void task_shiftout(void *arg)
             xSemaphoreGive(xSemClockHands);
         }
         if (led_matrix != NULL && led_matrix->led_matrix_cfg != NULL) {
-            for (int j = 0; j < led_matrix->height; j++) {
-                if (xSemaphoreTake(xSemLedMatrix, pdMS_TO_TICKS(1)) == pdTRUE) {
+            if (xSemaphoreTake(xSemLedMatrix, pdMS_TO_TICKS(1)) == pdTRUE) {
+                for (int j = 0; j < led_matrix->height; j++) {
                     led_matrix_show_row(led_matrix, j);
-                    xSemaphoreGive(xSemLedMatrix);
-                } else {
-                    --j; // If we can't take the semaphore, retry the same row
+                    vTaskDelay(1);
                 }
-                vTaskDelay(1);
+                xSemaphoreGive(xSemLedMatrix);
             }
         }
         vTaskDelay(1);
     }
 }
-
-void provisioning_setup(bool force_provisioning);
 
 void app_main(void)
 {
@@ -168,8 +191,20 @@ void app_main(void)
         return;
     }
     led_matrix->led_matrix_cfg->output_enable_value = 1; // Enable output
-    xTaskCreate(task_shiftout, "task_shiftout", 4096, NULL, 0, NULL);
-    provisioning_setup(false); // Start provisioning if needed
+    xTaskCreate(task_shiftout, "task_shiftout", 4096, NULL, 24, NULL);
+    provisioning_setup(show_ble_id, false);                  // Start provisioning if needed
+    str_t *nvs_ip_info_key = get_nvs_str_key("ip_info_key"); //
+    str_t *nvs_location    = get_nvs_str_key("location");    //
+    if (nvs_ip_info_key == NULL || nvs_location == NULL || str_length(nvs_ip_info_key) == 0 || str_length(nvs_location) == 0) {
+        ESP_LOGI(TAG, "No IP info or location in NVS, starting web server");
+        if (!start_webserver()) {
+            ESP_LOGE(TAG, "Failed to start web server");
+        } else {
+            ESP_LOGI(TAG, "Web server started successfully");
+        }
+    } else {
+        ESP_LOGI(TAG, "IP info: %s; Location: %s", str_c(nvs_ip_info_key), str_c(nvs_location));
+    }
     esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, "pool.ntp.org");
     esp_sntp_init();
