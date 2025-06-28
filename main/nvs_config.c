@@ -14,7 +14,7 @@ const char TAG[] = "NVS CONFIG";
 str_t *get_nvs_str_key(const char *key) {
     nvs_handle_t my_handle;
     esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
-    size_t out_len;
+    size_t out_len = 0;
     str_t *ret = str_new_ln(0);
     err = nvs_get_str(my_handle, key, NULL, &out_len);
     ESP_LOGI(TAG, "nvs_get_str '%s' out len %u", key, out_len);

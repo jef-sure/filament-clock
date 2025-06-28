@@ -59,6 +59,25 @@ void led_matrix_show_row(led_matrix_t *matrix, uint8_t row)
     spi_shiftout_write(matrix->led_matrix_cfg);
 }
 
+void led_matrix_show_black_row(led_matrix_t *matrix, uint8_t row)
+{
+    if (row >= matrix->height) {
+        ESP_LOGE("led_matrix", "Row out of bounds: %d", row);
+        return;
+    }
+    if (matrix == NULL || matrix->led_matrix_cfg == NULL) {
+        ESP_LOGE("led_matrix", "LED matrix or configuration is NULL");
+        return;
+    }
+    // Prepare the shift out data for the specified row
+    uint8_t *shift_out = matrix->led_matrix_cfg->shift_out;
+    memset(matrix->led_matrix_cfg->shift_out, 0xff, matrix->led_matrix_cfg->shift_out_length);
+    uint32_t bit           = (row % 8u);
+    uint32_t row_bit_index = matrix->led_matrix_cfg->shift_out_length - row / 8u - 1u;
+    shift_out[row_bit_index] &= ~(1 << bit);
+    spi_shiftout_write(matrix->led_matrix_cfg);
+}
+
 void led_matrix_clear(led_matrix_t *matrix)
 {
     if (matrix == NULL) {

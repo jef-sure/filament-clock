@@ -9,6 +9,7 @@
 #include "esp_err.h"
 #include "esp_flash.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "esp_sntp.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -40,7 +41,7 @@ enum
     CFLatchPin         = GPIO_NUM_10,
     DataPin            = GPIO_NUM_6,
     ClockPin           = GPIO_NUM_4,
-    ShiftOutFreq       = 2000000,
+    ShiftOutFreq       = 1000000,
     CFShiftOutLength   = 9,
     LMLightnessChannel = LEDC_CHANNEL_1, // LEDC channel for LED matrix light
     LMOutputEnablePin  = GPIO_NUM_9,
@@ -139,9 +140,43 @@ void show_ble_id(char *service_name)
     led_matrix_draw_sync(led_matrix, xSemLedMatrix, show_service_info, service_name);
 }
 
+void show_webserver_ip(led_matrix_t *matrix, void *data)
+{
+    if (matrix == NULL) {
+        ESP_LOGE("show_clock", "Invalid matrix");
+        return;
+    }
+    led_matrix_clear(matrix);
+    esp_netif_ip_info_t ip_infoMyIf;
+    esp_netif_get_ip_info(esp_netif_get_default_netif(), &ip_infoMyIf);
+    union
+    {
+        uint8_t  bytes[4];
+        uint32_t ip;
+    } ip_union;
+    ip_union.ip = ip_infoMyIf.ip.addr;
+    ESP_LOGI(TAG, "IP: %d.%d.%d.%d", ip_union.bytes[0], ip_union.bytes[1], ip_union.bytes[2], ip_union.bytes[3]);
+    // Show IP address on the matrix
+    for (int i = 2; i < 4; i++) {
+        uint8_t y           = (i & 1) * 8; // 0 for first byte, 8 for second byte
+        int     byte        = ip_union.bytes[i];
+        int     digit_count = 3;
+        while (byte) {
+            int digit = byte % (uint8_t)10;
+            byte /= 10;
+            int x = digit_count * 4; // Start from the right side
+            draw_digit_3x(matrix, digit, x, y);
+            digit_count--;
+        }
+    }
+}
+
 void task_shiftout(void *arg)
 {
+    int     led_matrix_baccu = 0;
+    int64_t next_yeild       = 0;
     while (1) {
+        bool lm_was_on = false;
         if (xSemaphoreTake(xSemClockHands, pdMS_TO_TICKS(1)) == pdTRUE) {
             if (clock_hands != NULL && clock_hands->shiftout != NULL && !clock_hands->is_sent) {
                 spi_shiftout_write(clock_hands->shiftout);
@@ -151,14 +186,25 @@ void task_shiftout(void *arg)
         }
         if (led_matrix != NULL && led_matrix->led_matrix_cfg != NULL) {
             if (xSemaphoreTake(xSemLedMatrix, pdMS_TO_TICKS(1)) == pdTRUE) {
+                led_matrix_baccu += led_matrix->brightness;
                 for (int j = 0; j < led_matrix->height; j++) {
-                    led_matrix_show_row(led_matrix, j);
-                    vTaskDelay(1);
+                    if (led_matrix_baccu >= LMBRIGHTNESS_RESOLUTION) led_matrix_show_row(led_matrix, j);
+                    else led_matrix_show_black_row(led_matrix, j);
+                }
+                if (led_matrix_baccu >= LMBRIGHTNESS_RESOLUTION) {
+                    lm_was_on = true;
+                    led_matrix_baccu -= LMBRIGHTNESS_RESOLUTION;
                 }
                 xSemaphoreGive(xSemLedMatrix);
             }
         }
-        vTaskDelay(1);
+        if (next_yeild < esp_timer_get_time()) {
+            if(lm_was_on) {
+                led_matrix_show_black_row(led_matrix, led_matrix->height - 1);
+            }
+            vTaskDelay(1);
+            next_yeild = esp_timer_get_time() + 10000; // Yield every 10 ms
+        }
     }
 }
 
@@ -190,7 +236,7 @@ void app_main(void)
         ESP_LOGE("app_main", "Failed to initialize led matrix structure");
         return;
     }
-    led_matrix->led_matrix_cfg->output_enable_value = 1; // Enable output
+    led_matrix->brightness = 1;
     xTaskCreate(task_shiftout, "task_shiftout", 4096, NULL, 24, NULL);
     provisioning_setup(show_ble_id, false);                  // Start provisioning if needed
     str_t *nvs_ip_info_key = get_nvs_str_key("ip_info_key"); //
@@ -201,6 +247,7 @@ void app_main(void)
             ESP_LOGE(TAG, "Failed to start web server");
         } else {
             ESP_LOGI(TAG, "Web server started successfully");
+            led_matrix_draw_sync(led_matrix, xSemLedMatrix, show_webserver_ip, NULL);
         }
     } else {
         ESP_LOGI(TAG, "IP info: %s; Location: %s", str_c(nvs_ip_info_key), str_c(nvs_location));

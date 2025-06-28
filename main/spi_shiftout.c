@@ -67,7 +67,7 @@ spi_shiftout_t *spi_shiftout_init(spi_device_handle_t spi, gpio_num_t latch_pin,
             .speed_mode      = LEDC_LOW_SPEED_MODE, //
             .timer_num       = ledc_timer_num,      //
             .duty_resolution = OE_RESOLUTION,       //
-            .freq_hz         = 500,                 // TODO: test this value
+            .freq_hz         = 4000,                // TODO: test this value
             .clk_cfg         = LEDC_AUTO_CLK        //
         };
         ledc_timer_config(&ledc_timer);
